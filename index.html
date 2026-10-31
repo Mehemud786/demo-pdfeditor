@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server-Side PDF Fetcher</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+</head>
+<body class="bg-[#0E1629] text-gray-200 min-h-screen font-sans">
+
+    <div class="max-w-5xl mx-auto p-6 mt-10">
+        <div class="bg-[#20234D] p-6 rounded-xl shadow-lg border border-violet-900/50">
+            <h2 class="text-2xl font-semibold text-white mb-4 flex items-center gap-2">
+                <svg class="w-6 h-6 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                Remote PDF Viewer
+            </h2>
+            
+            <div class="flex flex-col sm:flex-row gap-3">
+                <input 
+                    type="url" 
+                    id="pdfUrlInput" 
+                    placeholder="https://example.com/document.pdf" 
+                    class="flex-1 bg-[#0E1629] border border-violet-800 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500 transition-all"
+                >
+                <button 
+                    onclick="loadPdf()" 
+                    id="loadBtn"
+                    class="bg-violet-600 hover:bg-violet-500 text-white font-medium px-6 py-3 rounded-lg transition-colors shadow-[0_0_15px_rgba(124,58,237,0.3)] hover:shadow-[0_0_20px_rgba(124,58,237,0.5)] flex items-center justify-center gap-2"
+                >
+                    <span id="btnText">Fetch Document</span>
+                    <svg id="loadingSpinner" class="w-5 h-5 animate-spin hidden" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                </button>
+            </div>
+            <div id="statusMessage" class="mt-4 text-sm hidden"></div>
+        </div>
+        
+        <div id="pdfViewer" class="mt-8 bg-black/40 rounded-lg hidden overflow-auto border border-violet-900/50 min-h-[600px] flex flex-col items-center p-4">
+            <canvas id="pdfCanvas" class="shadow-2xl border border-gray-800"></canvas>
+        </div>
+    </div>
+
+    <script>
+        async function loadPdf() {
+            const urlInput = document.getElementById('pdfUrlInput').value;
+            const statusMsg = document.getElementById('statusMessage');
+            const btnText = document.getElementById('btnText');
+            const spinner = document.getElementById('loadingSpinner');
+            const viewer = document.getElementById('pdfViewer');
+            const canvas = document.getElementById('pdfCanvas');
+            
+            if (!urlInput) {
+                showStatus('Please enter a valid URL.', 'text-red-400');
+                return;
+            }
+
+            btnText.textContent = 'Fetching...';
+            spinner.classList.remove('hidden');
+            showStatus('Routing through Vercel serverless API...', 'text-violet-400');
+            viewer.classList.add('hidden');
+
+            try {
+                // Using relative path for Vercel deployment
+                const response = await fetch(`/api/fetch-pdf?url=${encodeURIComponent(urlInput)}`);
+                
+                if (!response.ok) throw new Error(`Server returned ${response.status}`);
+
+                const arrayBuffer = await response.arrayBuffer();
+                showStatus('Rendering document...', 'text-violet-400');
+                
+                // Render with PDF.js
+                const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+                const pdf = await loadingTask.promise;
+                const page = await pdf.getPage(1); // Render first page
+                
+                const viewport = page.getViewport({ scale: 1.5 });
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                const renderContext = { canvasContext: context, viewport: viewport };
+                await page.render(renderContext).promise;
+
+                viewer.classList.remove('hidden');
+                showStatus('PDF loaded successfully!', 'text-green-400');
+
+            } catch (error) {
+                console.error(error);
+                showStatus(`Error: ${error.message}`, 'text-red-400');
+            } finally {
+                btnText.textContent = 'Fetch Document';
+                spinner.classList.add('hidden');
+            }
+        }
+
+        function showStatus(text, colorClass) {
+            const el = document.getElementById('statusMessage');
+            el.textContent = text;
+            el.className = `mt-4 text-sm font-medium ${colorClass}`;
+            el.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
