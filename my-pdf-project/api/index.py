@@ -12,16 +12,18 @@ HTML_TEMPLATE = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PDF Editor - Merge</title>
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
-        .upload-box { border: 2px dashed #ccc; padding: 20px; text-align: center; border-radius: 8px; }
-        button { background: #000; color: #fff; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; margin-top: 15px; }
+        body { font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; color: #333; }
+        .upload-box { border: 2px dashed #ccc; padding: 30px; text-align: center; border-radius: 8px; background: #fafafa; }
+        button { background: #000; color: #fff; border: none; padding: 12px 24px; cursor: pointer; border-radius: 6px; margin-top: 15px; font-size: 16px; font-weight: bold; }
+        button:hover { background: #333; }
+        input[type="file"] { margin: 15px 0; }
     </style>
 </head>
 <body>
     <h2>PDF Editor (Merger)</h2>
     <div class="upload-box">
         <form action="/api/merge" method="post" enctype="multipart/form-data">
-            <p>Select multiple PDF files to merge them into one.</p>
+            <p>Select multiple PDF files to merge them into a single document.</p>
             <input type="file" name="pdfs" multiple accept=".pdf" required>
             <br>
             <button type="submit">Merge PDFs</button>
@@ -31,7 +33,9 @@ HTML_TEMPLATE = """
 </html>
 """
 
+# Stacked routes prevent Vercel 404 pathing errors
 @app.route('/')
+@app.route('/api/index.py')
 def index():
     return render_template_string(HTML_TEMPLATE)
 
