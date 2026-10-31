@@ -1,47 +1,59 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
-from fastapi.middleware.cors import CORSMiddleware
-import httpx
+from flask import Flask, request, send_file, render_template_string
+from pypdf import PdfWriter
+import io
 
-app = FastAPI(docs_url=None, redoc_url=None)
+app = Flask(__name__)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Editor - Merge</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
+        .upload-box { border: 2px dashed #ccc; padding: 20px; text-align: center; border-radius: 8px; }
+        button { background: #000; color: #fff; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; margin-top: 15px; }
+    </style>
+</head>
+<body>
+    <h2>PDF Editor (Merger)</h2>
+    <div class="upload-box">
+        <form action="/api/merge" method="post" enctype="multipart/form-data">
+            <p>Select multiple PDF files to merge them into one.</p>
+            <input type="file" name="pdfs" multiple accept=".pdf" required>
+            <br>
+            <button type="submit">Merge PDFs</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
-@app.get("/api/fetch-pdf")
-async def fetch_pdf(url: str):
-    # Auto-add https if missing
-    if not url.startswith("http"):
-        url = "https://" + url
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
 
-    # Trick servers into thinking this request is coming from a real Chrome browser
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-        "Accept": "application/pdf,application/octet-stream,*/*"
-    }
-
-    try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            
-            # Prevent crashing if the URL is a webpage (like Google Drive) instead of a raw PDF
-            content_type = response.headers.get("content-type", "").lower()
-            if "text/html" in content_type:
-                raise HTTPException(status_code=400, detail="URL returned a webpage, not a direct PDF file. Ensure this is a raw download link.")
-            
-            return Response(
-                content=response.content, 
-                media_type="application/pdf",
-                headers={"Content-Disposition": "inline; filename=document.pdf"}
-            )
-            
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Request timed out. The PDF might be too large.")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+@app.route('/api/merge', methods=['POST'])
+def merge_pdfs():
+    if 'pdfs' not in request.files:
+        return "No files uploaded", 400
+    
+    files = request.files.getlist('pdfs')
+    merger = PdfWriter()
+    
+    for pdf in files:
+        if pdf.filename.endswith('.pdf'):
+            merger.append(pdf)
+    
+    output_pdf = io.BytesIO()
+    merger.write(output_pdf)
+    output_pdf.seek(0)
+    
+    return send_file(
+        output_pdf, 
+        as_attachment=True, 
+        download_name="merged_document.pdf", 
+        mimetype="application/pdf"
+    )
