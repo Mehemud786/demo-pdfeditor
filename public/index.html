@@ -3,11 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Python PDF Editor</title>
+    <title>Python PDF Toolkit</title>
     <style>
-        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 3rem auto; padding: 0 1rem; }
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 3rem auto; padding: 0 1rem; color: #333; }
+        h1 { text-align: center; }
         .card { border: 1px solid #ddd; padding: 2rem; border-radius: 8px; background: #f9f9f9; margin-bottom: 2rem; }
-        input[type="url"] { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        .card h2 { margin-top: 0; }
+        input[type="url"], input[type="text"] { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        input[type="file"] { margin-bottom: 1rem; width: 100%; }
         button { background: #000; color: #fff; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-size: 1rem; width: 100%; }
         button:hover { background: #333; }
         button:disabled { background: #ccc; cursor: not-allowed; }
@@ -17,50 +20,52 @@
 <body>
     <h1>PDF Toolkit</h1>
     
-    <!-- NEW FEATURE: Open from URL -->
+    <!-- FEATURE 1: Open & Edit from URL -->
     <div class="card">
-        <h2>Open PDF from URL</h2>
-        <p>Fetch a PDF securely via the server and open it in a new tab.</p>
+        <h2>Fetch & Edit PDF from URL</h2>
+        <p>Fetch a PDF and optionally stamp text on it.</p>
         <form id="urlForm">
             <input type="url" id="pdfUrl" placeholder="https://example.com/document.pdf" required>
-            <button type="submit" id="urlBtn">Fetch & Open</button>
+            <input type="text" id="pdfText" placeholder="Text to add (leave blank for none)">
+            <button type="submit" id="urlBtn">Fetch & Add Text</button>
         </form>
     </div>
 
     <hr>
 
-    <!-- EXISTING FEATURE: Merge PDFs -->
+    <!-- FEATURE 2: Merge Local PDFs -->
     <div class="card">
         <h2>Merge Local PDFs</h2>
+        <p>Upload multiple PDFs to merge them into a single file.</p>
         <form id="uploadForm">
-            <input type="file" id="pdfFiles" accept="application/pdf" multiple required style="margin-bottom: 1rem; width: 100%;">
+            <input type="file" id="pdfFiles" accept="application/pdf" multiple required>
             <button type="submit" id="submitBtn">Merge PDFs</button>
         </form>
     </div>
     
     <script>
-        // --- NEW: URL Fetching Logic ---
+        // --- URL Fetching & Editing Logic ---
         document.getElementById('urlForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('urlBtn');
-            btn.textContent = "Fetching...";
+            btn.textContent = "Processing...";
             btn.disabled = true;
 
             const url = document.getElementById('pdfUrl').value;
+            const text = document.getElementById('pdfText').value;
             
             try {
                 const response = await fetch('/api/open-link', { 
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: url }) 
+                    body: JSON.stringify({ url: url, text: text }) 
                 });
                 
                 if (!response.ok) {
                     const errData = await response.json();
-                    throw new Error(errData.detail || "Server failed to fetch the URL");
+                    throw new Error(errData.detail || "Server failed to process the request");
                 }
                 
-                // Create a blob URL and open it in a new tab
                 const blob = await response.blob();
                 const blobUrl = window.URL.createObjectURL(blob);
                 window.open(blobUrl, '_blank');
@@ -68,17 +73,16 @@
             } catch (err) {
                 alert("Error: " + err.message);
             } finally {
-                btn.textContent = "Fetch & Open";
+                btn.textContent = "Fetch & Add Text";
                 btn.disabled = false;
             }
         });
 
-        // --- EXISTING: Local Merge Logic ---
+        // --- Local Merge Logic ---
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-            // (Keep your existing merge JavaScript code here)
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
-            btn.textContent = "Processing...";
+            btn.textContent = "Merging...";
             btn.disabled = true;
 
             const files = document.getElementById('pdfFiles').files;
@@ -87,7 +91,11 @@
             
             try {
                 const response = await fetch('/api/merge', { method: 'POST', body: formData });
-                if (!response.ok) throw new Error("Upload too large or server error");
+                
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.detail || "Server failed to merge PDFs");
+                }
                 
                 const blob = await response.blob();
                 const url = window.URL.createObjectURL(blob);
@@ -96,7 +104,7 @@
                 a.download = 'merged.pdf';
                 a.click();
             } catch (err) {
-                alert(err.message);
+                alert("Error: " + err.message);
             } finally {
                 btn.textContent = "Merge PDFs";
                 btn.disabled = false;

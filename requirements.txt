@@ -2,3 +2,4 @@ fastapi
 python-multipart
 pypdf
 requests
+reportlab
