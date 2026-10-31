@@ -1,0 +1,703 @@
+import http.server
+import socketserver
+import urllib.request
+from urllib.parse import urlparse, parse_qs
+import sys
+
+# The port your web app will run on
+PORT = 8000
+
+# ==============================================================================
+# FRONTEND HTML/JS/CSS (Served directly by the Python server)
+# ==============================================================================
+HTML_CONTENT = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integrated PDF Editor & Accounting Calculator</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- PDF-Lib for modifying PDFs -->
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+
+    <!-- html2pdf for capturing iframe scenes -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <!-- Add pdf.js for canvas rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+
+    <style>
+        /* Hide arrows on number inputs for a cleaner look */
+        input[type="number"]::-webkit-outer-spin-button,
+        input[type="number"]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+
+        /* Draggable Stamp Styles */
+        #stamp-overlay {
+            position: absolute;
+            cursor: grab;
+            font-family: monospace;
+            white-space: pre;
+            line-height: 1.1;
+            font-size: 0.875rem;
+            width: max-content;
+            background-color: rgba(255, 255, 255, 0.9);
+            color: black;
+            border: 1px dashed #3b82f6;
+            padding: 4px;
+            user-select: none;
+            display: none;
+            z-index: 10;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        #stamp-overlay:active {
+            cursor: grabbing;
+        }
+        #pdf-container {
+            position: relative;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-4 font-sans">
+
+    <!-- Main Two-Column Layout -->
+    <div class="max-w-7xl mx-auto flex flex-col lg:flex-row gap-8">
+        
+        <!-- ========================================== -->
+        <!-- LEFT COLUMN: ACCOUNTING CALCULATOR         -->
+        <!-- ========================================== -->
+        <div class="w-full lg:w-1/3 bg-gray-800 p-6 rounded-xl shadow-lg h-fit border border-gray-700">
+            <h2 class="text-xl font-semibold mb-6 border-b border-gray-700 pb-2">Calculation</h2>
+            
+            <div class="grid grid-cols-[1fr_40px_100px] gap-y-3 items-center text-lg">
+                <!-- Receipt Amount -->
+                <div class="col-span-2">Receipt Amount</div>
+                <input type="text" inputmode="numeric" id="calc-receipt" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-right focus:outline-none focus:border-blue-500 transition-colors w-full" placeholder="0">
+                
+                <!-- Due Collection -->
+                <div class="col-span-2">Due collection (+)</div>
+                <input type="text" inputmode="numeric" id="calc-due" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-right focus:outline-none focus:border-blue-500 transition-colors w-full" placeholder="0">
+                
+                <!-- Solid Line -->
+                <div class="col-start-2 col-end-4 border-b-2 border-gray-500 my-1"></div>
+                
+                <!-- Subtotal 1 -->
+                <div class="col-start-3 text-right font-semibold pr-2" id="out-sub1">0</div>
+                
+                <!-- Expanse -->
+                <div>Expanse.</div>
+                <div class="text-center text-gray-400">(-)</div>
+                <input type="text" inputmode="numeric" id="calc-expanse" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-right focus:outline-none focus:border-blue-500 transition-colors w-full" placeholder="0">
+                
+                <!-- Solid Line -->
+                <div class="col-start-2 col-end-4 border-b-2 border-gray-500 my-1"></div>
+                
+                <!-- Subtotal 2 -->
+                <div class="col-start-3 text-right font-semibold pr-2" id="out-sub2">0</div>
+                
+                <!-- UPI -->
+                <div>UPI.</div>
+                <div class="text-center text-gray-400">(-)</div>
+                <input type="text" inputmode="numeric" id="calc-upi" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-right focus:outline-none focus:border-blue-500 transition-colors w-full" placeholder="0">
+                
+                <!-- Solid Line -->
+                <div class="col-start-2 col-end-4 border-b-2 border-gray-500 my-1"></div>
+                
+                <!-- Final Total -->
+                <div class="col-start-3 text-right font-bold text-green-400 pr-2" id="out-final">0</div>
+            </div>
+            
+            <p class="text-xs text-gray-400 mt-6 italic">Changes here automatically update the PDF stamp in real-time.</p>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- RIGHT COLUMN: PDF EDITOR                   -->
+        <!-- ========================================== -->
+        <div class="w-full lg:w-2/3 bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700 flex flex-col relative" id="right-column">
+            <div class="flex justify-between items-center mb-2 border-b border-gray-700 pb-2">
+                <h2 class="text-xl font-semibold">PDF Editor & Stamper</h2>
+                <button id="btn-download" disabled class="hidden bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded transition-colors cursor-pointer text-sm shadow-md">
+                    Stamp & View PDF
+                </button>
+            </div>
+            
+            <!-- Upload Dropzone (Styled exactly like the provided screenshot) -->
+            <div id="upload-zone" class="bg-[#1a1e29] p-3 rounded-[2rem] relative min-h-[450px] flex items-center justify-center transition shadow-xl mt-4">
+                <div class="border-2 border-dashed border-gray-600/60 rounded-[1.5rem] p-8 flex flex-col items-center justify-center text-center w-full h-full min-h-[420px]">
+                    <div class="bg-[#242b3b] p-4 rounded-2xl mb-6 shadow-sm border border-gray-700/50 pointer-events-none">
+                        <!-- Purple Cloud Icon -->
+                        <svg class="w-10 h-10 text-[#a78bfa]" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z" />
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-bold text-white mb-2 pointer-events-none">Tap or Drop files here to send</h3>
+                    <p class="text-gray-400 mb-8 text-sm pointer-events-none">Documents, archives, PDFs, images or videos</p>
+                    
+                    <label class="bg-[#242b3b] hover:bg-[#2d3548] text-white px-8 py-4 rounded-xl border border-gray-700/80 flex items-center gap-3 transition w-full max-w-sm justify-center shadow-sm cursor-pointer relative z-10">
+                        <!-- Purple Folder Icon -->
+                        <svg class="w-6 h-6 text-[#a78bfa]" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+                        </svg>
+                        <span class="font-medium text-lg">Browse Device</span>
+                        <input type="file" id="pdf-upload" accept="application/pdf" class="hidden">
+                    </label>
+
+                    <!-- Link URL Open Section -->
+                    <div class="mt-8 w-full max-w-sm relative z-10 flex flex-col gap-3">
+                        <div class="flex items-center gap-2">
+                            <div class="h-px bg-gray-600 flex-grow opacity-50"></div>
+                            <span class="text-gray-400 text-xs uppercase tracking-wider font-semibold">Or open from link</span>
+                            <div class="h-px bg-gray-600 flex-grow opacity-50"></div>
+                        </div>
+                        <div class="flex gap-2">
+                            <input type="url" id="pdf-url" placeholder="Paste PDF URL (https://...)" class="flex-grow bg-[#242b3b] border border-gray-600/80 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-[#a78bfa] transition">
+                            <button id="btn-load-url" class="bg-[#a78bfa] hover:bg-[#8b5cf6] text-white px-5 py-3 rounded-xl transition font-medium shadow-md text-sm">Open</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PDF Preview & Interactive Canvas -->
+            <div id="canvas-wrapper" class="hidden flex-grow bg-[#1a1e29] rounded-[2rem] border-2 border-dashed border-gray-600/60 flex items-start justify-center min-h-[500px] overflow-auto relative p-6 mt-4 pb-20">
+                <!-- Red Cross Clear Button -->
+                <button id="btn-clear-pdf" class="absolute top-4 right-4 bg-red-600 hover:bg-red-700 text-white rounded-full p-2 z-20 transition shadow-lg border border-red-800" title="Clear Document">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+                
+                <div id="pdf-container" class="shadow-xl border border-gray-500 rounded bg-white relative">
+                    <canvas id="pdf-canvas"></canvas>
+                    <div id="stamp-overlay"></div>
+                </div>
+
+                <!-- PDF Pagination Controls -->
+                <div id="pdf-pagination" class="hidden absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-5 py-2 rounded-full shadow-lg border border-gray-600 flex items-center gap-6 z-20">
+                    <button id="btn-prev-page" class="hover:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition p-1">
+                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" />
+                        </svg>
+                    </button>
+                    <span id="page-indicator" class="text-sm font-medium tracking-wide">Page 1 of 1</span>
+                    <button id="btn-next-page" class="hover:text-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition p-1">
+                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        // --- Calculator Elements ---
+        const calcReceipt = document.getElementById('calc-receipt');
+        const calcDue = document.getElementById('calc-due');
+        const calcExpanse = document.getElementById('calc-expanse');
+        const calcUpi = document.getElementById('calc-upi');
+        const outSub1 = document.getElementById('out-sub1');
+        const outSub2 = document.getElementById('out-sub2');
+        const outFinal = document.getElementById('out-final');
+        const calcInputs = [calcReceipt, calcDue, calcExpanse, calcUpi];
+
+        // --- PDF Editor Elements ---
+        const pdfUpload = document.getElementById('pdf-upload');
+        const btnDownload = document.getElementById('btn-download');
+        const pdfContainer = document.getElementById('pdf-container');
+        const pdfCanvas = document.getElementById('pdf-canvas');
+        const stampOverlay = document.getElementById('stamp-overlay');
+        const uploadZone = document.getElementById('upload-zone');
+        const canvasWrapper = document.getElementById('canvas-wrapper');
+        const btnClearPdf = document.getElementById('btn-clear-pdf');
+        
+        // --- URL Feature Elements ---
+        const pdfUrlInput = document.getElementById('pdf-url');
+        const btnLoadUrl = document.getElementById('btn-load-url');
+        
+        // --- Pagination Elements ---
+        const pdfPagination = document.getElementById('pdf-pagination');
+        const btnPrevPage = document.getElementById('btn-prev-page');
+        const btnNextPage = document.getElementById('btn-next-page');
+        const pageIndicator = document.getElementById('page-indicator');
+
+        // --- Application State ---
+        let originalPdfBytes = null; 
+        let loadedPdfDoc = null; 
+        let currentPageNum = 1;
+        let totalPages = 1;
+        let currentCalculations = { receipt: 0, due: 0, sub1: 0, expanse: 0, sub2: 0, upi: 0, final: 0 };
+        let pdfPageWidth = 0;
+        let pdfPageHeight = 0;
+        let canvasScale = 1;
+
+        // --- Drag State ---
+        let isDragging = false;
+        let stampX = 50; 
+        let stampY = 50;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        // --- 1. Real-time Calculation Logic ---
+        function calculateMath() {
+            const receipt = Number(calcReceipt.value.replace(/,/g, '')) || 0;
+            const due = Number(calcDue.value.replace(/,/g, '')) || 0;
+            const expanse = Number(calcExpanse.value.replace(/,/g, '')) || 0;
+            const upi = Number(calcUpi.value.replace(/,/g, '')) || 0;
+
+            const sub1 = receipt + due;
+            const sub2 = sub1 - expanse;
+            const finalTotal = sub2 - upi;
+
+            outSub1.textContent = sub1.toLocaleString('en-IN');
+            outSub2.textContent = sub2.toLocaleString('en-IN');
+            outFinal.textContent = finalTotal.toLocaleString('en-IN');
+
+            currentCalculations = { receipt, due, sub1, expanse, sub2, upi, final: finalTotal };
+            updateStampText();
+        }
+
+        // --- 2. String Formatter ---
+        function getStampLines() {
+            const pad = (num) => Number(num).toLocaleString('en-IN').padStart(10, ' ');
+            const v = currentCalculations;
+            return [
+                `Receipt Amt  ${pad(v.receipt)}`,
+                `Due Col. (+) ${pad(v.due)}`,
+                `-----------------------`,
+                `             ${pad(v.sub1)}`,
+                `Expanse  (-) ${pad(v.expanse)}`,
+                `-----------------------`,
+                `             ${pad(v.sub2)}`,
+                `UPI      (-) ${pad(v.upi)}`,
+                `-----------------------`,
+                `Grand Total  ${pad(v.final)}`
+            ];
+        }
+
+        function updateStampText() {
+            const lines = getStampLines();
+            lines[lines.length - 1] = `<span style="font-weight: bold;">${lines[lines.length - 1]}</span>`;
+            stampOverlay.innerHTML = lines.join('\\n');
+        }
+
+        // --- 3. Drag Logic ---
+        function updateStampPosition() {
+            stampOverlay.style.left = stampX + 'px';
+            stampOverlay.style.top = stampY + 'px';
+        }
+
+        stampOverlay.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            stampOverlay.style.cursor = 'grabbing';
+            const rect = stampOverlay.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+            e.preventDefault();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const containerRect = pdfContainer.getBoundingClientRect();
+            let x = e.clientX - containerRect.left - dragOffsetX;
+            let y = e.clientY - containerRect.top - dragOffsetY;
+            x = Math.max(0, Math.min(x, containerRect.width - stampOverlay.offsetWidth));
+            y = Math.max(0, Math.min(y, containerRect.height - stampOverlay.offsetHeight));
+            stampX = x;
+            stampY = y;
+            updateStampPosition();
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                stampOverlay.style.cursor = 'grab';
+            }
+        });
+
+        stampOverlay.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            const rect = stampOverlay.getBoundingClientRect();
+            const touch = e.touches[0];
+            dragOffsetX = touch.clientX - rect.left;
+            dragOffsetY = touch.clientY - rect.top;
+        }, { passive: false });
+
+        window.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            const containerRect = pdfContainer.getBoundingClientRect();
+            const touch = e.touches[0];
+            let x = touch.clientX - containerRect.left - dragOffsetX;
+            let y = touch.clientY - containerRect.top - dragOffsetY;
+            x = Math.max(0, Math.min(x, containerRect.width - stampOverlay.offsetWidth));
+            y = Math.max(0, Math.min(y, containerRect.height - stampOverlay.offsetHeight));
+            stampX = x;
+            stampY = y;
+            updateStampPosition();
+        }, { passive: false });
+
+        window.addEventListener('touchend', () => {
+            if (isDragging) {
+                isDragging = false;
+            }
+        });
+
+        // --- 4. Render PDF Page to Canvas ---
+        async function renderPage(pageNum) {
+            if (!loadedPdfDoc) return;
+            
+            const page = await loadedPdfDoc.getPage(pageNum);
+            const viewportForScale = page.getViewport({ scale: 1 });
+            const desiredWidth = Math.min(800, window.innerWidth - 60); 
+            canvasScale = Math.min(1.5, desiredWidth / viewportForScale.width);
+            
+            const viewport = page.getViewport({ scale: canvasScale });
+            const outputScale = window.devicePixelRatio || 1;
+            const context = pdfCanvas.getContext('2d');
+            
+            pdfCanvas.width = Math.floor(viewport.width * outputScale);
+            pdfCanvas.height = Math.floor(viewport.height * outputScale);
+            pdfCanvas.style.width = Math.floor(viewport.width) + "px";
+            pdfCanvas.style.height =  Math.floor(viewport.height) + "px";
+
+            const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+            const renderContext = { canvasContext: context, transform: transform, viewport: viewport };
+
+            await page.render(renderContext).promise;
+
+            pdfPageWidth = viewportForScale.width;
+            pdfPageHeight = viewportForScale.height;
+
+            pageIndicator.textContent = `Page ${pageNum} of ${totalPages}`;
+            btnPrevPage.disabled = pageNum <= 1;
+            btnNextPage.disabled = pageNum >= totalPages;
+            
+            updateStampPosition();
+        }
+
+        btnPrevPage.addEventListener('click', () => {
+            if (currentPageNum <= 1) return;
+            currentPageNum--;
+            renderPage(currentPageNum);
+        });
+
+        btnNextPage.addEventListener('click', () => {
+            if (currentPageNum >= totalPages) return;
+            currentPageNum++;
+            renderPage(currentPageNum);
+        });
+
+        async function loadPdfFromArrayBuffer(arrayBuffer) {
+            originalPdfBytes = new Uint8Array(arrayBuffer);
+            
+            btnDownload.disabled = false;
+            btnDownload.classList.remove('hidden');
+            
+            const loadingTask = pdfjsLib.getDocument({ data: originalPdfBytes.slice(0) });
+            loadedPdfDoc = await loadingTask.promise;
+            totalPages = loadedPdfDoc.numPages;
+            currentPageNum = 1;
+            
+            uploadZone.classList.add('hidden');
+            canvasWrapper.classList.remove('hidden');
+            pdfPagination.classList.remove('hidden');
+            stampOverlay.style.display = 'block';
+            
+            await renderPage(currentPageNum);
+        }
+
+        // --- 5. SERVER-SIDE PDF LINK LOADER (Using Python Backend) ---
+        btnLoadUrl.addEventListener('click', async () => {
+            let url = pdfUrlInput.value.trim();
+            if (!url) return;
+            
+            // Auto-convert Google Drive viewer links to direct download links
+            if (url.includes('drive.google.com/file/d/')) {
+                const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+                if (match && match[1]) {
+                    url = `https://drive.google.com/uc?export=download&id=${match[1]}`;
+                }
+            }
+            
+            const originalText = btnLoadUrl.innerText;
+            btnLoadUrl.innerText = "Fetching...";
+            btnLoadUrl.disabled = true;
+            
+            try {
+                // Call the local Python backend proxy endpoint!
+                // This bypasses CORS issues because the backend fetches it directly.
+                const proxyUrl = `/proxy?url=${encodeURIComponent(url)}`;
+                const response = await fetch(proxyUrl);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || `Status ${response.status}`);
+                }
+                
+                const arrayBuffer = await response.arrayBuffer();
+                
+                // Verify if the result is actually a PDF (starts with %PDF)
+                const arr = new Uint8Array(arrayBuffer.slice(0, 5));
+                const header = String.fromCharCode.apply(null, arr);
+                if (header !== '%PDF-') {
+                    throw new Error("The fetched link did not return a valid PDF file. The server might require login.");
+                }
+
+                await loadPdfFromArrayBuffer(arrayBuffer);
+                pdfUrlInput.value = ''; // clear on success
+            } catch (error) {
+                console.error("Link load error: ", error);
+                alert("Could not load PDF from link:\\n\\n" + error.message);
+            } finally {
+                btnLoadUrl.innerText = originalText;
+                btnLoadUrl.disabled = false;
+            }
+        });
+
+        // --- 6. Stamping & Download/View Logic ---
+        btnDownload.addEventListener('click', async () => {
+            if (!originalPdfBytes) return;
+            
+            const originalBtnText = btnDownload.innerText;
+            btnDownload.innerText = "Processing...";
+            btnDownload.disabled = true;
+
+            try {
+                const pdfDoc = await PDFLib.PDFDocument.load(originalPdfBytes);
+                const courierFont = await pdfDoc.embedFont(PDFLib.StandardFonts.Courier);
+                const courierBoldFont = await pdfDoc.embedFont(PDFLib.StandardFonts.CourierBold);
+                const pages = pdfDoc.getPages();
+                const targetPage = pages[currentPageNum - 1]; 
+
+                const fontSize = 12;
+                const lineHeight = 13.2;
+                const padding = 4;
+
+                const pdfX = (stampX + padding) / canvasScale;
+                const pdfY_top = (stampY + padding) / canvasScale;
+                const pdfY_bottom = pdfPageHeight - pdfY_top;
+                const finalY = pdfY_bottom - fontSize;
+
+                const lines = getStampLines();
+                const normalLines = lines.slice(0, -1).join('\\n');
+                const boldLine = lines[lines.length - 1];
+
+                const longestLine = lines[2];
+                const textWidth = courierFont.widthOfTextAtSize(longestLine, fontSize);
+                const rectHeight = (lines.length * lineHeight) + (padding * 2);
+                const rectY = finalY - ((lines.length - 1) * lineHeight) - 3 - padding;
+
+                targetPage.drawRectangle({
+                    x: pdfX - padding,
+                    y: rectY,
+                    width: textWidth + (padding * 2),
+                    height: rectHeight,
+                    color: PDFLib.rgb(1, 1, 1),
+                    opacity: 0.9
+                });
+
+                targetPage.drawText(normalLines, {
+                    x: pdfX,
+                    y: finalY,
+                    size: fontSize,
+                    font: courierFont,
+                    color: PDFLib.rgb(0, 0, 0),
+                    lineHeight: lineHeight
+                });
+
+                targetPage.drawText(boldLine, {
+                    x: pdfX,
+                    y: finalY - ((lines.length - 1) * lineHeight),
+                    size: fontSize,
+                    font: courierBoldFont,
+                    color: PDFLib.rgb(0, 0, 0),
+                    lineHeight: lineHeight
+                });
+
+                const stampedPdfBytes = await pdfDoc.save();
+                const blob = new Blob([stampedPdfBytes], { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                
+                const link = document.createElement('a');
+                link.href = url;
+                link.target = '_blank';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                setTimeout(() => URL.revokeObjectURL(url), 2000);
+                
+            } catch (error) {
+                console.error("Error creating PDF: ", error);
+                alert("Error generating PDF. See console for details.");
+            } finally {
+                btnDownload.innerText = originalBtnText;
+                btnDownload.disabled = false;
+            }
+        });
+
+        // --- 7. Event Listeners ---
+        calcInputs.forEach(input => {
+            input.addEventListener('input', calculateMath);
+            input.addEventListener('blur', (e) => {
+                if (e.target.value !== '') {
+                    const val = Number(e.target.value.replace(/,/g, '')) || 0;
+                    e.target.value = val.toLocaleString('en-IN');
+                }
+            });
+        });
+
+        pdfUpload.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (file && file.type === 'application/pdf') {
+                const arrayBuffer = await file.arrayBuffer();
+                await loadPdfFromArrayBuffer(arrayBuffer);
+            } else {
+                alert("Please upload a valid PDF file.");
+            }
+            event.target.value = '';
+        });
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.style.opacity = '0.7';
+        });
+
+        uploadZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            uploadZone.style.opacity = '1';
+        });
+
+        uploadZone.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            uploadZone.style.opacity = '1';
+            const file = e.dataTransfer.files[0];
+            if (file && file.type === 'application/pdf') {
+                const arrayBuffer = await file.arrayBuffer();
+                await loadPdfFromArrayBuffer(arrayBuffer);
+            } else {
+                alert("Please drop a valid PDF file.");
+            }
+        });
+
+        btnClearPdf.addEventListener('click', () => {
+            originalPdfBytes = null;
+            loadedPdfDoc = null;
+            currentPageNum = 1;
+            totalPages = 1;
+            
+            btnDownload.disabled = true;
+            btnDownload.classList.add('hidden');
+            canvasWrapper.classList.add('hidden');
+            uploadZone.classList.remove('hidden');
+            pdfPagination.classList.add('hidden');
+            stampOverlay.style.display = 'none';
+            
+            pdfCanvas.classList.remove('hidden');
+            pdfContainer.style.display = "inline-block";
+            pdfContainer.style.width = "";
+            pdfContainer.style.height = "";
+            
+            const context = pdfCanvas.getContext('2d');
+            context.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+        });
+
+        // Initialize state
+        calculateMath();
+    </script>
+</body>
+</html>
+"""
+
+# ==============================================================================
+# BACKEND PYTHON SERVER LOGIC
+# ==============================================================================
+class WebAppProxyHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        parsed_path = urlparse(self.path)
+        
+        # 1. Serve the Main Web App HTML
+        if parsed_path.path == '/':
+            self.send_response(200)
+            self.send_header("Content-type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(HTML_CONTENT.encode('utf-8'))
+            return
+            
+        # 2. Server-Side PDF Fetch Proxy Route
+        elif parsed_path.path == '/proxy':
+            query = parse_qs(parsed_path.query)
+            target_url = query.get('url', [None])[0]
+            
+            if target_url:
+                try:
+                    # We spoof the User-Agent to act like a normal browser.
+                    # This completely bypasses standard website CORS blocks!
+                    req = urllib.request.Request(
+                        target_url, 
+                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+                    )
+                    
+                    with urllib.request.urlopen(req, timeout=15) as response:
+                        pdf_data = response.read()
+                        
+                        self.send_response(200)
+                        self.send_header("Content-type", "application/pdf")
+                        # Allow frontend to access the response
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        self.wfile.write(pdf_data)
+                        
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header("Content-type", "text/plain")
+                    self.end_headers()
+                    self.wfile.write(f"Server Proxy Error: {str(e)}".encode('utf-8'))
+            else:
+                self.send_response(400)
+                self.send_header("Content-type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"Missing 'url' parameter in the request.")
+            return
+            
+        # Fallback to standard HTTP handler
+        else:
+            super().do_GET()
+
+# ==============================================================================
+# MAIN SERVER START SCRIPT
+# ==============================================================================
+if __name__ == "__main__":
+    try:
+        # Prevent "Address already in use" errors during quick restarts
+        socketserver.TCPServer.allow_reuse_address = True
+        
+        with socketserver.TCPServer(("", PORT), WebAppProxyHandler) as httpd:
+            print(f"======================================================")
+            print(f" PDF EDITOR SERVER RUNNING")
+            print(f"======================================================")
+            print(f" Open your web browser and go to:")
+            print(f" >>  http://localhost:{PORT}  <<")
+            print(f"")
+            print(f" Press Ctrl+C in this terminal window to stop the server.")
+            print(f"======================================================")
+            
+            # Start serving requests indefinitely
+            httpd.serve_forever()
+            
+    except KeyboardInterrupt:
+        print("\nShutting down the server gracefully. Goodbye!")
+        sys.exit(0)
