@@ -1,32 +1,45 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel
 from pypdf import PdfWriter, PdfReader
 import io
+import requests
 
 app = FastAPI()
 
-@app.post("/api/merge")
-async def merge_pdfs(files: list[UploadFile] = File(...)):
-    merger = PdfWriter()
-    
+# Model for the incoming JSON request
+class URLPayload(BaseModel):
+    url: str
+
+@app.post("/api/open-link")
+async def open_pdf_from_link(payload: URLPayload):
     try:
-        for file in files:
-            # Read the uploaded file into memory
-            content = await file.read()
-            pdf = PdfReader(io.BytesIO(content))
-            merger.append(pdf)
+        # 1. Fetch the PDF from the provided URL (Server-side)
+        # Timeout set to 15 seconds to prevent serverless function timeout
+        response = requests.get(payload.url, timeout=15)
+        response.raise_for_status()
+        
+        # 2. Read into memory
+        pdf_bytes = io.BytesIO(response.content)
+        
+        # 3. Validate it's an actual PDF file
+        reader = PdfReader(pdf_bytes)
+        if len(reader.pages) == 0:
+            raise ValueError("PDF has no pages")
             
-        output_pdf = io.BytesIO()
-        merger.write(output_pdf)
-        merger.close()
+        # Reset memory pointer to the start of the file
+        pdf_bytes.seek(0)
         
-        # Reset buffer pointer to the beginning
-        output_pdf.seek(0)
-        
+        # 4. Return the file inline so the browser can open it
         return Response(
-            content=output_pdf.getvalue(),
+            content=pdf_bytes.getvalue(),
             media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=merged.pdf"}
+            # "inline" tells the browser to open it in a tab rather than downloading
+            headers={"Content-Disposition": "inline; filename=server_fetched.pdf"}
         )
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=400, detail=f"Failed to download from URL: {str(e)}")
     except Exception as e:
-        return Response(content=f"Error processing PDFs: {str(e)}", status_code=500)
+        raise HTTPException(status_code=400, detail=f"Invalid PDF file: {str(e)}")
+
+# ... (Keep your existing @app.post("/api/merge") code here) ...
