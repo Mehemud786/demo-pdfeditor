@@ -4,109 +4,162 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Python PDF Toolkit</title>
+    <!-- Import PDF.js for rendering the canvas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';</script>
     <style>
-        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 3rem auto; padding: 0 1rem; color: #333; }
-        h1 { text-align: center; }
-        .card { border: 1px solid #ddd; padding: 2rem; border-radius: 8px; background: #f9f9f9; margin-bottom: 2rem; }
-        .card h2 { margin-top: 0; }
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #333; }
+        .card { border: 1px solid #ddd; padding: 2rem; border-radius: 8px; background: #f9f9f9; }
         input[type="url"], input[type="text"] { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        input[type="file"] { margin-bottom: 1rem; width: 100%; }
-        button { background: #000; color: #fff; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-size: 1rem; width: 100%; }
+        button { background: #000; color: #fff; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-size: 1rem; width: 100%; margin-bottom: 1rem;}
         button:hover { background: #333; }
         button:disabled { background: #ccc; cursor: not-allowed; }
-        hr { border: 0; height: 1px; background: #ddd; margin: 2rem 0; }
+        
+        /* Canvas Styling */
+        #canvasContainer { position: relative; margin-top: 1rem; border: 1px solid #ccc; overflow: hidden; display: none; cursor: crosshair; }
+        #pdfCanvas { width: 100%; display: block; }
+        #textPreview { position: absolute; top: 50%; left: 50%; color: red; font-size: 24px; font-weight: bold; font-family: Helvetica, sans-serif; pointer-events: none; transform: translate(0, -100%); white-space: nowrap; }
     </style>
 </head>
 <body>
-    <h1>PDF Toolkit</h1>
+    <h1 style="text-align: center;">PDF Canvas Editor</h1>
     
-    <!-- FEATURE 1: Open & Edit from URL -->
     <div class="card">
-        <h2>Fetch & Edit PDF from URL</h2>
-        <p>Fetch a PDF and optionally stamp text on it.</p>
-        <form id="urlForm">
-            <input type="url" id="pdfUrl" placeholder="https://example.com/document.pdf" required>
-            <input type="text" id="pdfText" placeholder="Text to add (leave blank for none)">
-            <button type="submit" id="urlBtn">Fetch & Add Text</button>
-        </form>
+        <h2>1. Load PDF from URL</h2>
+        <input type="url" id="pdfUrl" placeholder="https://example.com/document.pdf" required>
+        <button id="loadBtn">Load to Canvas</button>
+
+        <!-- Visual Canvas Area -->
+        <div id="canvasContainer">
+            <canvas id="pdfCanvas"></canvas>
+            <div id="textPreview">Your Text Here</div>
+        </div>
+
+        <!-- Controls shown after loading -->
+        <div id="editControls" style="display: none; margin-top: 1.5rem;">
+            <h2>2. Add Text & Download</h2>
+            <input type="text" id="pdfText" placeholder="Type text, then click on the document above to position it">
+            <button id="editBtn">Apply, Open & Download</button>
+        </div>
     </div>
 
-    <hr>
-
-    <!-- FEATURE 2: Merge Local PDFs -->
-    <div class="card">
-        <h2>Merge Local PDFs</h2>
-        <p>Upload multiple PDFs to merge them into a single file.</p>
-        <form id="uploadForm">
-            <input type="file" id="pdfFiles" accept="application/pdf" multiple required>
-            <button type="submit" id="submitBtn">Merge PDFs</button>
-        </form>
-    </div>
-    
     <script>
-        // --- URL Fetching & Editing Logic ---
-        document.getElementById('urlForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const btn = document.getElementById('urlBtn');
-            btn.textContent = "Processing...";
+        let currentXPct = 0.5; // Defaults to middle of page
+        let currentYPct = 0.5;
+
+        // 1. Load PDF into Canvas
+        document.getElementById('loadBtn').addEventListener('click', async () => {
+            const url = document.getElementById('pdfUrl').value;
+            if(!url) return alert("Please enter a PDF URL");
+            
+            const btn = document.getElementById('loadBtn');
+            btn.textContent = "Loading...";
             btn.disabled = true;
 
-            const url = document.getElementById('pdfUrl').value;
-            const text = document.getElementById('pdfText').value;
-            
             try {
-                const response = await fetch('/api/open-link', { 
-                    method: 'POST', 
+                // Fetch through our backend to avoid CORS restrictions
+                const response = await fetch('/api/fetch-raw', {
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: url, text: text }) 
+                    body: JSON.stringify({ url: url })
                 });
                 
-                if (!response.ok) {
-                    const errData = await response.json();
-                    throw new Error(errData.detail || "Server failed to process the request");
-                }
+                if (!response.ok) throw new Error("Could not fetch the PDF");
                 
                 const blob = await response.blob();
-                const blobUrl = window.URL.createObjectURL(blob);
-                window.open(blobUrl, '_blank');
+                const blobUrl = URL.createObjectURL(blob);
+                
+                // Render page 1 using PDF.js
+                const loadingTask = pdfjsLib.getDocument(blobUrl);
+                const pdf = await loadingTask.promise;
+                const page = await pdf.getPage(1);
+                
+                const viewport = page.getViewport({ scale: 1.5 });
+                const canvas = document.getElementById('pdfCanvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                
+                // Show canvas and edit controls
+                document.getElementById('canvasContainer').style.display = 'block';
+                document.getElementById('editControls').style.display = 'block';
                 
             } catch (err) {
                 alert("Error: " + err.message);
             } finally {
-                btn.textContent = "Fetch & Add Text";
+                btn.textContent = "Load to Canvas";
                 btn.disabled = false;
             }
         });
 
-        // --- Local Merge Logic ---
-        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const btn = document.getElementById('submitBtn');
-            btn.textContent = "Merging...";
-            btn.disabled = true;
+        // 2. Handle positioning on Canvas click
+        const canvasContainer = document.getElementById('canvasContainer');
+        const textPreview = document.getElementById('textPreview');
+        const pdfText = document.getElementById('pdfText');
 
-            const files = document.getElementById('pdfFiles').files;
-            const formData = new FormData();
-            for (let file of files) formData.append('files', file);
+        pdfText.addEventListener('input', () => {
+            textPreview.textContent = pdfText.value || "Your Text Here";
+        });
+
+        canvasContainer.addEventListener('click', (e) => {
+            const rect = canvasContainer.getBoundingClientRect();
+            
+            // Get click coordinates relative to the canvas container
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Convert to percentages so it scales properly on the backend
+            currentXPct = x / rect.width;
+            currentYPct = y / rect.height;
+            
+            // Move the red preview text
+            textPreview.style.left = (currentXPct * 100) + "%";
+            textPreview.style.top = (currentYPct * 100) + "%";
+        });
+
+        // 3. Send coordinates to backend and Download
+        document.getElementById('editBtn').addEventListener('click', async () => {
+            const url = document.getElementById('pdfUrl').value;
+            const text = pdfText.value;
+            
+            if(!text) return alert("Please type some text to add.");
+            
+            const btn = document.getElementById('editBtn');
+            btn.textContent = "Processing...";
+            btn.disabled = true;
             
             try {
-                const response = await fetch('/api/merge', { method: 'POST', body: formData });
+                const response = await fetch('/api/edit-pdf', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url: url,
+                        text: text,
+                        x_pct: currentXPct,
+                        y_pct: currentYPct
+                    })
+                });
                 
-                if (!response.ok) {
-                    const errData = await response.json();
-                    throw new Error(errData.detail || "Server failed to merge PDFs");
-                }
+                if (!response.ok) throw new Error("Failed to edit PDF");
                 
                 const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
+                const blobUrl = window.URL.createObjectURL(blob);
+                
+                // Requirement: Open in a new tab
+                window.open(blobUrl, '_blank');
+                
+                // Requirement: Add download
                 const a = document.createElement('a');
-                a.href = url;
-                a.download = 'merged.pdf';
+                a.href = blobUrl;
+                a.download = 'edited_canvas.pdf';
                 a.click();
+                
             } catch (err) {
                 alert("Error: " + err.message);
             } finally {
-                btn.textContent = "Merge PDFs";
+                btn.textContent = "Apply, Open & Download";
                 btn.disabled = false;
             }
         });

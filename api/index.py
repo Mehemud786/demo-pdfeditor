@@ -9,80 +9,87 @@ from reportlab.lib.colors import red
 
 app = FastAPI()
 
-# Health check to verify API is running
+# Health check
 @app.get("/api")
 async def root():
     return {"status": "Python Backend is running successfully!"}
 
-# Model for the URL fetch request
-class URLPayload(BaseModel):
+# Payloads
+class FetchPayload(BaseModel):
     url: str
-    text: str = ""
 
-# Helper function to create a transparent PDF layer with text
-def create_text_overlay(text: str, width: float, height: float):
+class EditPayload(BaseModel):
+    url: str
+    text: str
+    x_pct: float  # X position as a percentage (0.0 to 1.0)
+    y_pct: float  # Y position as a percentage (0.0 to 1.0)
+
+# Function to create text layer using user's coordinates
+def create_text_overlay(text: str, width: float, height: float, x_pct: float, y_pct: float):
     packet = io.BytesIO()
     c = canvas.Canvas(packet, pagesize=(width, height))
-    
-    # Configure text appearance
     c.setFont("Helvetica-Bold", 36)
     c.setFillColor(red)
     
-    # Draw the text in the lower-middle of the page
-    c.drawString(width / 4, height / 2, text)
+    # HTML canvas originates top-left, but PDFs originate bottom-left. 
+    # We invert the Y percentage to match the PDF coordinate system.
+    pdf_x = width * x_pct
+    pdf_y = height * (1.0 - y_pct)
     
+    c.drawString(pdf_x, pdf_y, text)
     c.save()
     packet.seek(0)
     return packet
 
-@app.post("/api/open-link")
-async def open_pdf_from_link(payload: URLPayload):
+# Fetch raw PDF for the frontend canvas to display (bypasses CORS)
+@app.post("/api/fetch-raw")
+async def fetch_raw_pdf(payload: FetchPayload):
     try:
-        # 1. Fetch the PDF from URL
+        response = requests.get(payload.url, timeout=15)
+        response.raise_for_status()
+        return Response(content=response.content, media_type="application/pdf")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to load PDF: {str(e)}")
+
+# Edit the PDF using precise coordinates
+@app.post("/api/edit-pdf")
+async def edit_pdf_canvas(payload: EditPayload):
+    try:
         response = requests.get(payload.url, timeout=15)
         response.raise_for_status()
         
         pdf_bytes = io.BytesIO(response.content)
         reader = PdfReader(pdf_bytes)
         
-        if len(reader.pages) == 0:
-            raise ValueError("PDF has no pages")
-
-        # 2. Add text overlay if provided
-        if payload.text and payload.text.strip():
+        if not payload.text.strip():
+            pdf_bytes.seek(0)
+            output_bytes = pdf_bytes.getvalue()
+        else:
             writer = PdfWriter()
-            
             for page in reader.pages:
                 width = float(page.mediabox.width)
                 height = float(page.mediabox.height)
                 
-                # Generate and apply the text layer
-                overlay_pdf = create_text_overlay(payload.text, width, height)
+                overlay_pdf = create_text_overlay(payload.text, width, height, payload.x_pct, payload.y_pct)
                 overlay_reader = PdfReader(overlay_pdf)
-                overlay_page = overlay_reader.pages[0]
                 
-                page.merge_page(overlay_page)
+                page.merge_page(overlay_reader.pages[0])
                 writer.add_page(page)
             
             output = io.BytesIO()
             writer.write(output)
             output.seek(0)
-            pdf_bytes = output
-        else:
-            pdf_bytes.seek(0)
-        
-        # 3. Return the edited PDF inline
+            output_bytes = output.getvalue()
+            
         return Response(
-            content=pdf_bytes.getvalue(),
+            content=output_bytes,
             media_type="application/pdf",
             headers={"Content-Disposition": "inline; filename=edited.pdf"}
         )
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=400, detail=f"Failed to download from URL: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
 
-
+# (Optional) Keep the local merge endpoint if you still want it
 @app.post("/api/merge")
 async def merge_pdfs(files: list[UploadFile] = File(...)):
     merger = PdfWriter()
