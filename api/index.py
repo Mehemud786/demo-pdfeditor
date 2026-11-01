@@ -44,3 +44,4 @@ def extract_token(username: str = Form(...), password: str = Form(...)):
         
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=str(e))
+        
