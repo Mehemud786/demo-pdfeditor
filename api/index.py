@@ -1,84 +1,46 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
-from pydantic import BaseModel
-from pypdf import PdfWriter, PdfReader
-import io
+from fastapi import FastAPI, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import requests
-from reportlab.pdfgen import canvas
-from reportlab.lib.colors import red
 
-app = FastAPI()
+# Vercel requires the app instance to be available for the ASGI server
+app = FastAPI(title="Session Token Extractor")
 
-class EditRequest(BaseModel):
-    url: str
-    text: str = ""
+# Enable CORS for the frontend to communicate with this Vercel function
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Change this to your frontend domain in production
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def create_text_layer(text: str, width: float, height: float):
-    packet = io.BytesIO()
-    c = canvas.Canvas(packet, pagesize=(width, height))
-    c.setFont("Helvetica-Bold", 36)
-    c.setFillColor(red)
-    # Position text in the center
-    c.drawString(width / 4, height / 2, text)
-    c.save()
-    packet.seek(0)
-    return packet
+TARGET_LOGIN_URL = "https://api.example.com/login" 
 
-@app.post("/api/fetch-and-edit")
-async def fetch_and_edit_pdf(payload: EditRequest):
+@app.post("/api/extract-token")
+def extract_token(username: str = Form(...), password: str = Form(...)):
+    payload = {
+        "username": username,
+        "password": password
+    }
+    
     try:
-        # 1. Fetch the URL as a standard web browser to bypass basic blocks
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/pdf, application/octet-stream"
+        session = requests.Session()
+        response = session.post(TARGET_LOGIN_URL, data=payload)
+        
+        if response.status_code not in (200, 201, 302):
+            raise HTTPException(status_code=response.status_code, detail="Authentication failed")
+            
+        extracted_cookies = session.cookies.get_dict()
+        
+        json_token = None
+        if "application/json" in response.headers.get("Content-Type", ""):
+            json_token = response.json().get("token") 
+
+        return {
+            "target": "example.com",
+            "status_code": response.status_code,
+            "session_cookies": extracted_cookies,
+            "json_token": json_token,
         }
         
-        response = requests.get(payload.url, headers=headers, timeout=20)
-        response.raise_for_status()
-        
-        # Prevent processing if a login page or HTML is returned instead of a file
-        if "text/html" in response.headers.get("Content-Type", "").lower():
-            raise ValueError("The URL returned a web page (HTML). It likely requires a login or the link does not point directly to a PDF.")
-
-        pdf_bytes = io.BytesIO(response.content)
-        
-        try:
-            reader = PdfReader(pdf_bytes)
-            if len(reader.pages) == 0:
-                raise ValueError("The PDF document is empty.")
-        except Exception:
-             raise ValueError("The downloaded file is not a valid or readable PDF.")
-
-        # 2. Apply Text Edit if provided
-        if payload.text and payload.text.strip():
-            writer = PdfWriter()
-            for page in reader.pages:
-                width = float(page.mediabox.width)
-                height = float(page.mediabox.height)
-                
-                # Generate transparent text layer and merge it
-                overlay_pdf = create_text_layer(payload.text, width, height)
-                overlay_reader = PdfReader(overlay_pdf)
-                page.merge_page(overlay_reader.pages[0])
-                writer.add_page(page)
-            
-            output = io.BytesIO()
-            writer.write(output)
-            output.seek(0)
-            pdf_bytes = output
-        else:
-            pdf_bytes.seek(0)
-        
-        # 3. Return the edited file
-        return Response(
-            content=pdf_bytes.getvalue(),
-            media_type="application/pdf",
-            headers={"Content-Disposition": "inline; filename=edited_document.pdf"}
-        )
-        
     except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
