@@ -13,9 +13,12 @@ app = FastAPI()
 async def root():
     return {"status": "Python Backend is running successfully!"}
 
+# UPDATED: Added username and password fields
 class URLPayload(BaseModel):
     url: str
     text: str = ""
+    username: str = ""
+    password: str = ""
 
 def create_text_overlay(text: str, width: float, height: float):
     packet = io.BytesIO()
@@ -30,20 +33,28 @@ def create_text_overlay(text: str, width: float, height: float):
 @app.post("/api/open-link")
 async def open_pdf_from_link(payload: URLPayload):
     try:
-        # ADDED: Fake browser headers to bypass basic bot-blocking
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/pdf, application/octet-stream, */*"
         }
         
-        # Fetch the URL
-        response = requests.get(payload.url, headers=headers, timeout=20)
+        # UPDATED: Handle Authentication if provided
+        auth = None
+        if payload.username and payload.password:
+            auth = (payload.username, payload.password)
+        
+        # Fetch the URL with optional auth
+        response = requests.get(payload.url, headers=headers, auth=auth, timeout=20)
+        
+        # Handle specific authentication errors
+        if response.status_code in (401, 403):
+            raise ValueError("Authentication failed. Check your username and password, or you may not have permission to view this file.")
+            
         response.raise_for_status()
         
-        # ADDED: Check if the server returned a web page (like a login screen) instead of a file
         content_type = response.headers.get("Content-Type", "").lower()
         if "text/html" in content_type:
-            raise ValueError("The server returned an HTML web page instead of a PDF. This usually means the URL requires a login/password, or the link is invalid.")
+            raise ValueError("The server returned an HTML web page instead of a PDF. This URL might require a complex cookie-based login rather than standard Basic Authentication.")
 
         pdf_bytes = io.BytesIO(response.content)
         
@@ -52,7 +63,7 @@ async def open_pdf_from_link(payload: URLPayload):
             if len(reader.pages) == 0:
                 raise ValueError("PDF has no pages")
         except Exception as e:
-             raise ValueError("The downloaded file is not a valid PDF document. It might be corrupted or protected.")
+             raise ValueError("The downloaded file is not a valid PDF. It might be corrupted or protected.")
 
         # Add text overlay if provided
         if payload.text and payload.text.strip():
@@ -83,14 +94,12 @@ async def open_pdf_from_link(payload: URLPayload):
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=400, detail=f"Network error while fetching URL: {str(e)}")
     except ValueError as e:
-        # Return our custom error messages to the frontend
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 @app.post("/api/merge")
 async def merge_pdfs(files: list[UploadFile] = File(...)):
-    # ... (Keep your existing merge code exactly as it was) ...
     merger = PdfWriter()
     try:
         for file in files:

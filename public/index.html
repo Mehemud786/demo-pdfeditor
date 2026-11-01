@@ -19,6 +19,23 @@
 </head>
 <body>
     <h1>PDF Toolkit</h1>
+<!-- UPDATED FEATURE: Open & Edit from URL -->
+    <div class="card">
+        <h2>Fetch & Edit PDF from URL</h2>
+        <p>Fetch a PDF (with optional login) and optionally stamp text on it.</p>
+        <form id="urlForm">
+            <input type="url" id="pdfUrl" placeholder="https://example.com/document.pdf" required>
+            
+            <!-- NEW: Auth Inputs -->
+            <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                <input type="text" id="pdfUser" placeholder="Username (Optional)" style="flex: 1; padding: 0.75rem; border: 1px solid #ccc; border-radius: 4px;">
+                <input type="password" id="pdfPass" placeholder="Password (Optional)" style="flex: 1; padding: 0.75rem; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+
+            <input type="text" id="pdfText" placeholder="Text to add (leave blank for none)">
+            <button type="submit" id="urlBtn">Fetch & Add Text</button>
+        </form>
+    </div>
     
     <!-- FEATURE 1: Open & Edit from URL -->
     <div class="card">
@@ -110,6 +127,49 @@
                 btn.disabled = false;
             }
         });
+        // --- URL Fetching & Editing Logic ---
+document.getElementById('urlForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('urlBtn');
+    btn.textContent = "Processing...";
+    btn.disabled = true;
+    
+    const url = document.getElementById('pdfUrl').value;
+    const text = document.getElementById('pdfText').value;
+    
+    // NEW: Get auth values
+    const username = document.getElementById('pdfUser').value;
+    const password = document.getElementById('pdfPass').value;
+    
+    try {
+        const response = await fetch('/api/open-link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            // NEW: Include username and password in payload
+            body: JSON.stringify({
+                url: url,
+                text: text,
+                username: username,
+                password: password
+            })
+        });
+        
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || "Server failed to process the request");
+        }
+        
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        window.open(blobUrl, '_blank');
+        
+    } catch (err) {
+        alert("Error: " + err.message);
+    } finally {
+        btn.textContent = "Fetch & Add Text";
+        btn.disabled = false;
+    }
+});
     </script>
 </body>
 </html>
