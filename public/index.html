@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Python PDF Toolkit</title>
-    <!-- Import PDF.js for rendering the canvas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';</script>
     <style>
@@ -15,10 +14,13 @@
         button:hover { background: #333; }
         button:disabled { background: #ccc; cursor: not-allowed; }
         
-        /* Canvas Styling */
+        /* Canvas & Pagination Styling */
         #canvasContainer { position: relative; margin-top: 1rem; border: 1px solid #ccc; overflow: hidden; display: none; cursor: crosshair; }
         #pdfCanvas { width: 100%; display: block; }
         #textPreview { position: absolute; top: 50%; left: 50%; color: red; font-size: 24px; font-weight: bold; font-family: Helvetica, sans-serif; pointer-events: none; transform: translate(0, -100%); white-space: nowrap; }
+        
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 1rem; display: none; }
+        .pagination button { width: auto; margin: 0; padding: 0.5rem 1rem; }
     </style>
 </head>
 <body>
@@ -28,6 +30,13 @@
         <h2>1. Load PDF from URL</h2>
         <input type="url" id="pdfUrl" placeholder="https://example.com/document.pdf" required>
         <button id="loadBtn">Load to Canvas</button>
+
+        <!-- Pagination Controls -->
+        <div class="pagination" id="paginationControls">
+            <button id="prevBtn">Previous</button>
+            <span id="pageInfo">Page 1 / 1</span>
+            <button id="nextBtn">Next</button>
+        </div>
 
         <!-- Visual Canvas Area -->
         <div id="canvasContainer">
@@ -44,8 +53,58 @@
     </div>
 
     <script>
-        let currentXPct = 0.5; // Defaults to middle of page
+        let currentXPct = 0.5;
         let currentYPct = 0.5;
+        
+        // PDF.js State Variables
+        let pdfDoc = null;
+        let pageNum = 1;
+        let pageRendering = false;
+        let pageNumPending = null;
+        const canvas = document.getElementById('pdfCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Render a specific page
+        async function renderPage(num) {
+            pageRendering = true;
+            const page = await pdfDoc.getPage(num);
+            const viewport = page.getViewport({ scale: 1.5 });
+            
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            
+            const renderContext = { canvasContext: ctx, viewport: viewport };
+            await page.render(renderContext).promise;
+            
+            pageRendering = false;
+            if (pageNumPending !== null) {
+                renderPage(pageNumPending);
+                pageNumPending = null;
+            }
+            
+            document.getElementById('pageInfo').textContent = `Page ${num} / ${pdfDoc.numPages}`;
+        }
+
+        function queueRenderPage(num) {
+            if (pageRendering) {
+                pageNumPending = num;
+            } else {
+                renderPage(num);
+            }
+        }
+
+        // Pagination Button Listeners
+        document.getElementById('prevBtn').addEventListener('click', () => {
+            if (pageNum <= 1) return;
+            pageNum--;
+            queueRenderPage(pageNum);
+        });
+
+        document.getElementById('nextBtn').addEventListener('click', () => {
+            if (pageNum >= pdfDoc.numPages) return;
+            pageNum++;
+            queueRenderPage(pageNum);
+        });
 
         // 1. Load PDF into Canvas
         document.getElementById('loadBtn').addEventListener('click', async () => {
@@ -57,7 +116,6 @@
             btn.disabled = true;
 
             try {
-                // Fetch through our backend to avoid CORS restrictions
                 const response = await fetch('/api/fetch-raw', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -69,21 +127,15 @@
                 const blob = await response.blob();
                 const blobUrl = URL.createObjectURL(blob);
                 
-                // Render page 1 using PDF.js
-                const loadingTask = pdfjsLib.getDocument(blobUrl);
-                const pdf = await loadingTask.promise;
-                const page = await pdf.getPage(1);
+                // Load document with PDF.js
+                pdfDoc = await pdfjsLib.getDocument(blobUrl).promise;
+                pageNum = 1; // Reset to page 1 on new load
                 
-                const viewport = page.getViewport({ scale: 1.5 });
-                const canvas = document.getElementById('pdfCanvas');
-                const context = canvas.getContext('2d');
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
+                await renderPage(pageNum);
                 
-                await page.render({ canvasContext: context, viewport: viewport }).promise;
-                
-                // Show canvas and edit controls
+                // Show canvas, pagination, and edit controls
                 document.getElementById('canvasContainer').style.display = 'block';
+                document.getElementById('paginationControls').style.display = 'flex';
                 document.getElementById('editControls').style.display = 'block';
                 
             } catch (err) {
@@ -105,21 +157,17 @@
 
         canvasContainer.addEventListener('click', (e) => {
             const rect = canvasContainer.getBoundingClientRect();
-            
-            // Get click coordinates relative to the canvas container
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             
-            // Convert to percentages so it scales properly on the backend
             currentXPct = x / rect.width;
             currentYPct = y / rect.height;
             
-            // Move the red preview text
             textPreview.style.left = (currentXPct * 100) + "%";
             textPreview.style.top = (currentYPct * 100) + "%";
         });
 
-        // 3. Send coordinates to backend and Download
+        // 3. Send coordinates & Page Number to backend
         document.getElementById('editBtn').addEventListener('click', async () => {
             const url = document.getElementById('pdfUrl').value;
             const text = pdfText.value;
@@ -138,7 +186,8 @@
                         url: url,
                         text: text,
                         x_pct: currentXPct,
-                        y_pct: currentYPct
+                        y_pct: currentYPct,
+                        page_num: pageNum // NEW: Send the current page number
                     })
                 });
                 
@@ -147,10 +196,8 @@
                 const blob = await response.blob();
                 const blobUrl = window.URL.createObjectURL(blob);
                 
-                // Requirement: Open in a new tab
                 window.open(blobUrl, '_blank');
                 
-                // Requirement: Add download
                 const a = document.createElement('a');
                 a.href = blobUrl;
                 a.download = 'edited_canvas.pdf';
