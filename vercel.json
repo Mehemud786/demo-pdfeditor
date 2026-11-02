@@ -11,5 +11,13 @@
       "src": "/(.*)",
       "dest": "/api/process-pdf.js"
     }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
+    }
   ]
 }
