@@ -1,67 +1,56 @@
 import { NextResponse } from 'next/server';
 
-export async function POST(req: Request) {
+export async function GET() {
+  // Load credentials and endpoints securely from Environment Variables
+  const portalLoginUrl = process.env.PORTAL_LOGIN_URL!;
+  const portalPdfUrl = process.env.PORTAL_PDF_URL!;
+  const username = process.env.PORTAL_USERNAME!;
+  const password = process.env.PORTAL_PASSWORD!;
+
   try {
-    const { username, password } = await req.json();
-
-    if (!username || !password) {
-      return NextResponse.json({ error: 'Credentials required' }, { status: 400 });
-    }
-
-    // =====================================================================
-    // STEP 1: Authenticate with the target external portal
-    // =====================================================================
-    const loginUrl = 'https://target-portal.com/api/login'; 
-    
-    const loginResponse = await fetch(loginUrl, {
+    // 1. Authenticate with the external portal
+    const authResponse = await fetch(portalLoginUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // Adjust payload keys based on what the portal expects
-      body: JSON.stringify({ username, password }), 
+      // Note: Change to URLSearchParams if the portal expects x-www-form-urlencoded
+      body: JSON.stringify({ username, password }),
     });
 
-    if (!loginResponse.ok) {
+    if (!authResponse.ok) {
       return NextResponse.json({ error: 'Authentication failed' }, { status: 401 });
     }
 
-    // Extract the token or cookies. 
-    // (If the portal uses cookies, you must parse the 'set-cookie' header instead)
-    const authData = await loginResponse.json();
-    const token = authData.token; 
-
-    // =====================================================================
-    // STEP 2: Fetch the PDF using the obtained credentials
-    // =====================================================================
-    const pdfUrl = 'https://target-portal.com/api/documents/target-doc.pdf'; 
+    // Extract the session cookie or JWT token from the response
+    const cookies = authResponse.headers.get('set-cookie');
+    const token = authResponse.headers.get('authorization');
     
-    const pdfResponse = await fetch(pdfUrl, {
+    // 2. Fetch the PDF using the retrieved credentials
+    const pdfResponse = await fetch(portalPdfUrl, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${token}`, 
-        // If cookie based: 'Cookie': loginResponse.headers.get('set-cookie') || ''
-      },
+        // Pass whichever auth method the portal requires
+        ...(cookies ? { 'Cookie': cookies } : {}),
+        ...(token ? { 'Authorization': token } : {})
+      }
     });
 
     if (!pdfResponse.ok) {
-      return NextResponse.json({ error: 'Failed to retrieve PDF' }, { status: pdfResponse.status });
+        return NextResponse.json({ error: 'Failed to fetch PDF' }, { status: 500 });
     }
 
-    // Convert the response to an ArrayBuffer for transmission
+    // 3. Read the PDF into an ArrayBuffer
     const pdfBuffer = await pdfResponse.arrayBuffer();
 
-    // =====================================================================
-    // STEP 3: Return the PDF to the Next.js client
-    // =====================================================================
+    // 4. Return the PDF to the browser with correct headers
     return new NextResponse(pdfBuffer, {
-      status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': 'attachment; filename="downloaded-document.pdf"',
+        // Use 'inline' to display in the browser, or 'attachment' to force a download
+        'Content-Disposition': 'inline; filename="document.pdf"', 
       },
     });
 
   } catch (error) {
-    console.error('PDF Fetch Error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
