@@ -6,16 +6,10 @@
       "use": "@vercel/node"
     }
   ],
-  "functions": {
-    "api/fetch-pdf.js": {
-      "memory": 1024,
-      "maxDuration": 60
-    }
-  },
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/api/fetch-pdf.js"
+      "dest": "/api/process-pdf.js"
     }
   ]
 }
