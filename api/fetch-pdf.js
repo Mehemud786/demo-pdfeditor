@@ -1,77 +1,56 @@
-// api/fetch-pdf.js
-import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
+import axios from 'axios';
 
 export default async function handler(req, res) {
-    // Only accept POST requests for credentials
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method Not Allowed' });
+    // We restrict to GET requests for downloading
+    if (req.method !== 'GET') {
+        return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { username, password, targetPdfUrl } = req.body;
-
-    if (!username || !password || !targetPdfUrl) {
-        return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    let browser = null;
+    // Replace these with your target portal's actual URLs and payload structure
+    const LOGIN_URL = 'https://example-portal.com/api/login';
+    const PDF_URL = 'https://example-portal.com/api/documents/12345.pdf';
 
     try {
-        // 1. Launch the Vercel-optimized headless browser
-        browser = await puppeteer.launch({
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
+        // STEP 1: Authenticate with the portal
+        const loginResponse = await axios.post(LOGIN_URL, {
+            username: process.env.PORTAL_USERNAME,
+            password: process.env.PORTAL_PASSWORD
         });
 
-        const page = await browser.newPage();
+        // STEP 2: Extract the authentication mechanism.
+        // Most portals use either a 'Set-Cookie' header or return a JSON token.
+        // Option A (Cookies):
+        const cookies = loginResponse.headers['set-cookie'];
+        const cookieString = cookies ? cookies.join('; ') : '';
 
-        // 2. Navigate to the portal's login page
-        // UPDATE THIS URL to the actual login page
-        await page.goto('https://example.com/login', { waitUntil: 'networkidle2' });
+        // Option B (JWT/Bearer Token) - uncomment if the portal uses this instead:
+        // const token = loginResponse.data.token;
 
-        // 3. Automate the login process
-        // UPDATE THESE SELECTORS to match the website's HTML elements
-        await page.type('input[name="username"]', username);
-        await page.type('input[name="password"]', password);
-        
-        await Promise.all([
-            page.click('button[type="submit"]'),
-            page.waitForNavigation({ waitUntil: 'networkidle2' }),
-        ]);
-
-        // 4. Extract the session cookies
-        const cookies = await page.cookies();
-        await browser.close();
-
-        // 5. Format cookies for the fetch request
-        const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-
-        // 6. Fetch the actual PDF using the authenticated cookies
-        const pdfResponse = await fetch(targetPdfUrl, {
-            method: 'GET',
+        // STEP 3: Fetch the PDF using the session data
+        const pdfResponse = await axios.get(PDF_URL, {
             headers: {
                 'Cookie': cookieString,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
+                // 'Authorization': `Bearer ${token}` // Use this if portal uses JWT
+            },
+            // Crucial: Tells axios to handle the response as raw binary data
+            responseType: 'arraybuffer' 
         });
 
-        if (!pdfResponse.ok) {
-            throw new Error(`Failed to download PDF. Status: ${pdfResponse.status}`);
-        }
-
-        const pdfArrayBuffer = await pdfResponse.arrayBuffer();
-        const pdfBuffer = Buffer.from(pdfArrayBuffer);
-
-        // 7. Serve the PDF back to the client
+        // STEP 4: Return the PDF to the client
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'attachment; filename="document.pdf"');
-        return res.send(pdfBuffer);
+        // Use 'inline' to view in browser, or 'attachment' to force download
+        res.setHeader('Content-Disposition', 'inline; filename="fetched-document.pdf"');
+        res.status(200).send(pdfResponse.data);
 
     } catch (error) {
-        console.error('Error fetching PDF:', error);
-        if (browser) await browser.close();
-        return res.status(500).json({ error: error.message });
+        console.error("Failed to fetch PDF:", error.message);
+        // Fallback for API errors
+        if (error.response) {
+            return res.status(error.response.status).json({ 
+                error: 'Upstream portal error', 
+                details: error.response.statusText 
+            });
+        }
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 }

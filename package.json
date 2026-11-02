@@ -1,0 +1,8 @@
+{
+  "name": "vercel-pdf-fetcher",
+  "version": "1.0.0",
+  "description": "Fetch PDF from authenticated portal on Vercel",
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}
