@@ -9,7 +9,7 @@ module.exports = async (req, res) => {
   try {
     // 1. Authenticate with the login portal
     // (Replace the URL and payload with your portal's actual login endpoint and field names)
-    const loginResponse = await axios.post('https://example-portal.com/api/login', {
+    const loginResponse = await axios.post('https://nirnoy.smartxlab.in/public/login', {
       username: process.env.PORTAL_USERNAME,
       password: process.env.PORTAL_PASSWORD
     });
@@ -23,7 +23,7 @@ module.exports = async (req, res) => {
 
     // 2. Fetch the PDF using the authenticated session
     // (Replace with the actual URL where the PDF is located)
-    const pdfUrl = 'https://example-portal.com/api/downloads/document.pdf';
+    const pdfUrl = 'https://nirnoy.smartxlab.in/internal_reports/print_business_report?from_date=2026-11-02&to_date=2026-11-02&as_on_date=2026-11-02&report_type=all';
     
     const pdfResponse = await axios.get(pdfUrl, {
       headers: {
