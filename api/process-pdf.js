@@ -1,5 +1,5 @@
-const { fetchPdf } = require('../utils/fetcher.js');
-const { addTextToPdf } = require('../utils/pdfEditor.js');
+const { fetchPdf } = require('/utils/fetcher.js');
+const { addTextToPdf } = require('/utils/pdfEditor.js');
 
 export default async function handler(req, res) {
   // Restrict to POST requests
