@@ -1,50 +1,61 @@
-const axios = require('axios');
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
-module.exports = async (req, res) => {
-  // Only allow GET or POST requests
-  if (req.method !== 'GET' && req.method !== 'POST') {
-    return res.status(405).send('Method Not Allowed');
+export default async function handler(req, res) {
+  // Optional: Secure your Vercel endpoint so not anyone can trigger it
+  const { authorization } = req.headers;
+  if (authorization !== `Bearer ${process.env.API_SECRET_KEY}`) {
+    return res.status(401).json({ error: 'Unauthorized request' });
   }
+
+  let browser = null;
 
   try {
-    // 1. Authenticate with the login portal
-    // (Replace the URL and payload with your portal's actual login endpoint and field names)
-    const loginResponse = await axios.post('https://nirnoy.smartxlab.in/public/login', {
-      username: process.env.PORTAL_USERNAME,
-      password: process.env.PORTAL_PASSWORD
+    // Launch Vercel-compatible Chromium
+    browser = await puppeteer.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
+      ignoreHTTPSErrors: true,
     });
 
-    // Extract the session cookie or authorization token
-    // Note: Some portals return a token in the body (loginResponse.data.token)
-    const cookies = loginResponse.headers['set-cookie'];
-    if (!cookies) {
-      throw new Error('Authentication failed: No session cookie received.');
-    }
+    const page = await browser.newPage();
 
-    // 2. Fetch the PDF using the authenticated session
-    // (Replace with the actual URL where the PDF is located)
-    const pdfUrl = 'https://nirnoy.smartxlab.in/internal_reports/print_business_report?from_date=2026-11-02&to_date=2026-11-02&as_on_date=2026-11-02&report_type=all';
+    // 1. Navigate to the login portal
+    await page.goto('https://nirnoy.smartxlab.in/public/login', { waitUntil: 'networkidle2' });
+
+    // 2. Input credentials and submit (Update selectors to match your portal's HTML)
+    await page.type('input[name="username"]', process.env.PORTAL_USERNAME);
+    await page.type('input[name="password"]', process.env.PORTAL_PASSWORD);
     
-    const pdfResponse = await axios.get(pdfUrl, {
-      headers: {
-        'Cookie': cookies.join('; '), // Pass the session cookie
-        // 'Authorization': `Bearer ${loginResponse.data.token}` // Use this if it's a token-based API
-      },
-      responseType: 'arraybuffer' // CRUCIAL: Tells axios to handle the response as binary data
+    await Promise.all([
+      page.click('button[type="submit"]'), // Update this selector
+      page.waitForNavigation({ waitUntil: 'networkidle2' }),
+    ]);
+
+    // 3. Navigate to the specific report URL
+    const targetUrl = 'https://example.com/internal_reports/print_business_report?from_date=2026-11-02&to_date=2026-11-02&as_on_date=2026-11-02&report_type=all';
+    await page.goto(targetUrl, { waitUntil: 'networkidle2' });
+
+    // 4. Generate the PDF from the loaded page
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
     });
 
-    // 3. Serve the PDF directly to the user's browser
+    // 5. Return the PDF buffer to the client
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename="downloaded-document.pdf"'); // Use 'inline' to display in browser instead of downloading
-    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate'); // Optional caching
-    
-    res.status(200).send(pdfResponse.data);
+    res.setHeader('Content-Disposition', 'attachment; filename="business_report.pdf"');
+    res.status(200).send(pdfBuffer);
 
   } catch (error) {
-    console.error('Error fetching PDF:', error.message);
-    res.status(500).json({ 
-      error: 'Failed to fetch the document.',
-      details: error.response ? error.response.data : error.message 
-    });
+    console.error('PDF Generation Error:', error);
+    res.status(500).json({ error: 'Failed to generate PDF', details: error.message });
+  } finally {
+    if (browser !== null) {
+      await browser.close();
+    }
   }
-};
+}
