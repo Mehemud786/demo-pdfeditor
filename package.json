@@ -1,7 +1,9 @@
 {
   "name": "vercel-pdf-fetcher",
   "version": "1.0.0",
-  "description": "Fetch PDF from authenticated portal on Vercel",
+  "scripts": {
+    "start": "node api/fetch-pdf.js"
+  },
   "dependencies": {
     "axios": "^1.6.0"
   }
