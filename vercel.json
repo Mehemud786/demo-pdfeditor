@@ -2,7 +2,6 @@
   "version": 2,
   "rewrites": [
     {
-      "source": "/api/edit-pdf",
       "destination": "/api/index.js"
     }
   ]
