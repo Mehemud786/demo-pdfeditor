@@ -1,12 +1,14 @@
 {
   "name": "vercel-pdf-editor",
   "version": "1.0.0",
-  "description": "Serverless function to fetch, edit, and serve PDFs on Vercel",
+  "description": "Serverless HTML to PDF on Vercel",
   "main": "api/index.js",
   "scripts": {
     "dev": "vercel dev"
   },
   "dependencies": {
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "puppeteer-core": "^21.4.0",
+    "@sparticuz/chromium": "^119.0.2"
   }
 }

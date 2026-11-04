@@ -3,22 +3,13 @@
   "functions": {
     "api/**/*.js": {
       "memory": 1024,
-      "maxDuration": 15
+      "maxDuration": 60
     }
   },
   "rewrites": [
     {
       "source": "/api/edit-pdf",
       "destination": "/api/index.js"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET" }
-      ]
     }
   ]
 }
