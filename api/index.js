@@ -1,76 +1,44 @@
-const chromium = require('@sparticuz/chromium');
-const puppeteer = require('puppeteer-core');
-const { PDFDocument, rgb } = require('pdf-lib');
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
 
-  const { userId, password } = req.body;
-  if (!userId || !password) {
-    return res.status(400).send('User ID and Password are required.');
-  }
-
-  let browser = null;
-
   try {
-    // 1. Launch Headless Chromium specifically optimized for Vercel
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-      ignoreHTTPSErrors: true,
-    });
+    const { userId, password } = req.body;
 
-    const page = await browser.newPage();
-
-    // 2. Set Basic Authentication headers for the portal
-    await page.authenticate({ username: userId, password: password });
-
-    // 3. Navigate to the HTML report URL
-    const reportUrl = 'https://nirnoy.smartxlab.in/internal_reports/print_business_report?from_date=2026-11-04&to_date=2026-11-04&as_on_date=2026-11-04&report_type=all';
-    
-    // Wait until there are no network connections for at least 500ms to ensure HTML/CSS loads
-    await page.goto(reportUrl, { waitUntil: 'networkidle0' });
-
-    // 4. Convert the rendered HTML page to a PDF buffer
-    const generatedPdfBuffer = await page.pdf({
-      format: 'A4',
-      printBackground: true, // Ensures CSS background colors/images are printed
-      margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
-    });
-
-    await browser.close();
-
-    // 5. Load the newly generated PDF into pdf-lib for editing
-    const pdfDoc = await PDFDocument.load(generatedPdfBuffer);
-    const pages = pdfDoc.getPages();
-    
-    if (pages.length > 0) {
-      const firstPage = pages[0];
-      const { height } = firstPage.getSize();
-
-      // Add custom stamp
-      firstPage.drawText(`Processed for user: ${userId}`, {
-        x: 50,
-        y: height - 30, 
-        size: 12,
-        color: rgb(0.1, 0.6, 0.1), // Green
-      });
+    if (!userId || !password) {
+      return res.status(400).send('User ID and Password are required.');
     }
 
-    // 6. Save and send the final PDF
-    const finalPdfBytes = await pdfDoc.save();
+    const reportUrl = 'https://nirnoy.smartxlab.in/internal_reports/print_business_report?from_date=2026-11-04&to_date=2026-11-04&as_on_date=2026-11-04&report_type=all';
+    
+    // Encode credentials for Basic Authentication
+    const encodedCredentials = Buffer.from(`${userId}:${password}`).toString('base64');
 
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="converted-report.pdf"');
-    res.status(200).send(Buffer.from(finalPdfBytes));
+    // Fetch the HTML report
+    const fetchResponse = await fetch(reportUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Basic ${encodedCredentials}`
+      }
+    });
+
+    if (!fetchResponse.ok) {
+      if (fetchResponse.status === 401 || fetchResponse.status === 403) {
+        throw new Error('Authentication failed. Check User ID and Password.');
+      }
+      throw new Error(`Failed to fetch report: ${fetchResponse.status}`);
+    }
+
+    // Get the HTML content
+    const htmlContent = await fetchResponse.text();
+
+    // Serve the HTML directly
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.status(200).send(htmlContent);
 
   } catch (error) {
-    if (browser) await browser.close();
-    console.error('HTML to PDF Error:', error);
-    res.status(500).send(`Failed to process HTML to PDF: ${error.message}`);
+    console.error('Fetch Error:', error.message);
+    res.status(500).send(error.message);
   }
 }

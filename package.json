@@ -1,14 +1,10 @@
 {
-  "name": "vercel-pdf-editor",
+  "name": "vercel-html-fetcher",
   "version": "1.0.0",
-  "description": "Serverless HTML to PDF on Vercel",
+  "description": "Serverless function to fetch secure HTML and serve it",
   "main": "api/index.js",
   "scripts": {
     "dev": "vercel dev"
   },
-  "dependencies": {
-    "pdf-lib": "^1.17.1",
-    "puppeteer-core": "^21.4.0",
-    "@sparticuz/chromium": "^119.0.2"
-  }
+  "dependencies": {}
 }

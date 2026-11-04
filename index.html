@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Business Report PDF Editor</title>
+    <title>Business Report Viewer</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -23,7 +23,7 @@
             text-align: center;
         }
         .container {
-            max-width: 900px;
+            max-width: 1000px;
             width: 95%;
             margin: 30px auto;
             text-align: center;
@@ -58,14 +58,16 @@
         }
         button:hover { background-color: #005bb5; }
         button:disabled { background-color: #ccc; cursor: not-allowed; }
-        .pdf-viewer {
+        
+        .html-viewer {
             margin-top: 30px;
             width: 100%;
-            height: 700px;
+            height: 800px;
             border: 2px solid #ddd;
             border-radius: 8px;
             background-color: #fff;
             display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         }
         #errorMessage { color: #d32f2f; margin-top: 15px; font-weight: bold; display: none; }
     </style>
@@ -73,28 +75,30 @@
 <body>
 
     <div class="header">
-        <h1>Internal Report Processor</h1>
+        <h1>Internal Report Viewer</h1>
     </div>
 
     <div class="container">
-        <p>Enter your portal credentials to fetch and edit the secure report.</p>
+        <p>Enter your portal credentials to view the secure HTML report.</p>
         
         <div class="login-box">
             <input type="text" id="userId" placeholder="User ID" required />
             <input type="password" id="password" placeholder="Password" required />
-            <button id="generateBtn" onclick="loadPDF()">Login & Fetch Report</button>
+            <button id="generateBtn" onclick="loadReport()">Login & View Report</button>
         </div>
         
         <p id="errorMessage"></p>
-        <iframe id="pdfFrame" class="pdf-viewer" title="PDF Viewer"></iframe>
+        
+        <!-- The fetched HTML will be injected here -->
+        <iframe id="reportFrame" class="html-viewer" title="Report Viewer"></iframe>
     </div>
 
     <script>
-        async function loadPDF() {
+        async function loadReport() {
             const userId = document.getElementById('userId').value;
             const password = document.getElementById('password').value;
             const btn = document.getElementById('generateBtn');
-            const iframe = document.getElementById('pdfFrame');
+            const iframe = document.getElementById('reportFrame');
             const errorMsg = document.getElementById('errorMessage');
 
             if (!userId || !password) {
@@ -103,18 +107,16 @@
                 return;
             }
 
-            btn.innerText = "Authenticating & Processing...";
+            btn.innerText = "Authenticating & Fetching...";
             btn.disabled = true;
             errorMsg.style.display = "none";
             iframe.style.display = "none";
 
             try {
-                // Send a POST request to our Vercel API with the credentials
-                const response = await fetch('/api/edit-pdf', {
+                // Send credentials to Vercel API
+                const response = await fetch('/api/fetch-report', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userId, password })
                 });
 
@@ -123,19 +125,18 @@
                     throw new Error(errorText || `Error ${response.status}`);
                 }
 
-                // Convert the response to a raw file object (Blob)
-                const blob = await response.blob();
+                // Read the response as raw text (HTML)
+                const htmlContent = await response.text();
                 
-                // Create a temporary local URL for the iframe to display
-                const objectUrl = URL.createObjectURL(blob);
-                iframe.src = objectUrl;
+                // Inject the HTML directly into the iframe securely
+                iframe.srcdoc = htmlContent;
                 iframe.style.display = "block";
 
             } catch (error) {
                 errorMsg.innerText = "Failed: " + error.message;
                 errorMsg.style.display = "block";
             } finally {
-                btn.innerText = "Login & Fetch Report";
+                btn.innerText = "Login & View Report";
                 btn.disabled = false;
             }
         }
