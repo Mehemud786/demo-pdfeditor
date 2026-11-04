@@ -1,18 +1,12 @@
 {
-  "name": "my-pdf-app",
+  "name": "vercel-pdf-editor",
   "version": "1.0.0",
-  "description": "Node.js PDF text editing app with authenticated fetch",
-  "main": "api/process-pdf.js",
+  "description": "Serverless function to fetch, edit, and serve PDFs on Vercel",
+  "main": "api/index.js",
   "scripts": {
-    "start": "node api/process-pdf.js"
-  },
-  "engines": {
-    "node": "26.x"
+    "dev": "vercel dev"
   },
   "dependencies": {
-"axios": "^1.7.0",
-"pdf-lib": "^1.17.1"
-  },
-  "author": "",
-  "license": "ISC"
+    "pdf-lib": "^1.17.1"
+  }
 }
