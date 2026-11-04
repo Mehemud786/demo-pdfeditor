@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Report PDF Editor</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .header {
+            background-color: #111;
+            color: #fff;
+            width: 100%;
+            padding: 20px 0;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .container {
+            max-width: 900px;
+            width: 95%;
+            margin: 30px auto;
+            text-align: center;
+        }
+        button {
+            background-color: #0070f3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            box-shadow: 0 4px 6px rgba(0, 112, 243, 0.2);
+        }
+        button:hover {
+            background-color: #005bb5;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .pdf-viewer {
+            margin-top: 30px;
+            width: 100%;
+            height: 700px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background-color: #fff;
+            display: none; /* Hidden until loaded */
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        #errorMessage {
+            color: #d32f2f;
+            margin-top: 15px;
+            font-weight: bold;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Internal Report Processor</h1>
+    </div>
+
+    <div class="container">
+        <p>Click below to fetch the latest business report from the internal system, add the "Reviewed & Processed" stamp, and view it.</p>
+        
+        <button id="generateBtn" onclick="loadPDF()">Fetch & Edit Report</button>
+        <p id="errorMessage"></p>
+
+        <!-- The PDF will be displayed inside this iframe -->
+        <iframe id="pdfFrame" class="pdf-viewer" title="PDF Viewer"></iframe>
+    </div>
+
+    <script>
+        function loadPDF() {
+            const btn = document.getElementById('generateBtn');
+            const iframe = document.getElementById('pdfFrame');
+            const errorMsg = document.getElementById('errorMessage');
+
+            // Reset UI state
+            btn.innerText = "Processing PDF...";
+            btn.disabled = true;
+            errorMsg.style.display = "none";
+            iframe.style.display = "none";
+
+            // Point the iframe source to your Vercel serverless function
+            // We append a timestamp to bypass browser caching so it always gets the freshest version
+            const apiUrl = '/api?timestamp=' + new Date().getTime();
+
+            // Setup a load listener on the iframe to know when it finishes
+            iframe.onload = function() {
+                btn.innerText = "Fetch & Edit Report";
+                btn.disabled = false;
+                iframe.style.display = "block";
+            };
+
+            iframe.onerror = function() {
+                btn.innerText = "Fetch & Edit Report";
+                btn.disabled = false;
+                errorMsg.innerText = "Failed to load the PDF. Check server logs.";
+                errorMsg.style.display = "block";
+            };
+
+            // Trigger the API call by setting the iframe src
+            iframe.src = apiUrl;
+        }
+    </script>
+</body>
+</html>
