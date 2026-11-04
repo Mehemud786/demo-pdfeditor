@@ -6,15 +6,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const pdfUrl = 'https://nirnoy.smartxlab.in/internal_reports/print_business_report?from_date=2026-11-04&to_date=2026-11-04&as_on_date=2026-11-04&report_type=all';
+    const pdfUrl = "https://www.ssgopalganj.in/online/E-Books/CLASS%20VI/Grandma's%20Bag%20of%20Stories%20by%20Sudha%20Murthy.pdf";
     
     // NOTE: Uncomment and update if the URL requires authentication
-     const fetchResponse = await fetch(pdfUrl, {
-       headers: {
+    // const fetchResponse = await fetch(pdfUrl, {
+    //   headers: {
     //     'Authorization': 'Bearer YOUR_TOKEN',
-         'Cookie': 'e104f9799d5ec37e2fe0d4e4eb723f3e'
-     }
-     });
+       //  'Cookie': 'e104f9799d5ec37e2fe0d4e4eb723f3e'
+//}
+  //   });
     const fetchResponse = await fetch(pdfUrl);
 
     if (!fetchResponse.ok) {
