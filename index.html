@@ -21,13 +21,29 @@
             width: 100%;
             padding: 20px 0;
             text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .container {
             max-width: 900px;
             width: 95%;
             margin: 30px auto;
             text-align: center;
+        }
+        .login-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            max-width: 300px;
+            margin: 0 auto 20px auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        input {
+            padding: 10px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
         }
         button {
             background-color: #0070f3;
@@ -39,16 +55,9 @@
             border-radius: 6px;
             cursor: pointer;
             transition: background-color 0.2s;
-            box-shadow: 0 4px 6px rgba(0, 112, 243, 0.2);
         }
-        button:hover {
-            background-color: #005bb5;
-        }
-        button:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
-            box-shadow: none;
-        }
+        button:hover { background-color: #005bb5; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
         .pdf-viewer {
             margin-top: 30px;
             width: 100%;
@@ -57,14 +66,8 @@
             border-radius: 8px;
             background-color: #fff;
             display: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         }
-        #errorMessage {
-            color: #d32f2f;
-            margin-top: 15px;
-            font-weight: bold;
-            display: none;
-        }
+        #errorMessage { color: #d32f2f; margin-top: 15px; font-weight: bold; display: none; }
     </style>
 </head>
 <body>
@@ -74,42 +77,67 @@
     </div>
 
     <div class="container">
-        <p>Click below to fetch the latest business report from the internal system, apply the timestamped overlay, and view it.</p>
+        <p>Enter your portal credentials to fetch and edit the secure report.</p>
         
-        <button id="generateBtn" onclick="loadPDF()">Fetch & Edit Report</button>
+        <div class="login-box">
+            <input type="text" id="userId" placeholder="User ID" required />
+            <input type="password" id="password" placeholder="Password" required />
+            <button id="generateBtn" onclick="loadPDF()">Login & Fetch Report</button>
+        </div>
+        
         <p id="errorMessage"></p>
-
         <iframe id="pdfFrame" class="pdf-viewer" title="PDF Viewer"></iframe>
     </div>
 
     <script>
-        function loadPDF() {
+        async function loadPDF() {
+            const userId = document.getElementById('userId').value;
+            const password = document.getElementById('password').value;
             const btn = document.getElementById('generateBtn');
             const iframe = document.getElementById('pdfFrame');
             const errorMsg = document.getElementById('errorMessage');
 
-            btn.innerText = "Processing PDF...";
+            if (!userId || !password) {
+                errorMsg.innerText = "Please enter both User ID and Password.";
+                errorMsg.style.display = "block";
+                return;
+            }
+
+            btn.innerText = "Authenticating & Processing...";
             btn.disabled = true;
             errorMsg.style.display = "none";
             iframe.style.display = "none";
 
-            // Calls the custom route defined in vercel.json
-            const apiUrl = '/api/edit-pdf?timestamp=' + new Date().getTime();
+            try {
+                // Send a POST request to our Vercel API with the credentials
+                const response = await fetch('/api/edit-pdf', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ userId, password })
+                });
 
-            iframe.onload = function() {
-                btn.innerText = "Fetch & Edit Report";
-                btn.disabled = false;
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || `Error ${response.status}`);
+                }
+
+                // Convert the response to a raw file object (Blob)
+                const blob = await response.blob();
+                
+                // Create a temporary local URL for the iframe to display
+                const objectUrl = URL.createObjectURL(blob);
+                iframe.src = objectUrl;
                 iframe.style.display = "block";
-            };
 
-            iframe.onerror = function() {
-                btn.innerText = "Fetch & Edit Report";
-                btn.disabled = false;
-                errorMsg.innerText = "Failed to load the PDF. Check server logs.";
+            } catch (error) {
+                errorMsg.innerText = "Failed: " + error.message;
                 errorMsg.style.display = "block";
-            };
-
-            iframe.src = apiUrl;
+            } finally {
+                btn.innerText = "Login & Fetch Report";
+                btn.disabled = false;
+            }
         }
     </script>
 </body>
