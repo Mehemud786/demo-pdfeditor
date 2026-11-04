@@ -56,7 +56,7 @@
             border: 2px solid #ddd;
             border-radius: 8px;
             background-color: #fff;
-            display: none; /* Hidden until loaded */
+            display: none;
             box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         }
         #errorMessage {
@@ -74,12 +74,11 @@
     </div>
 
     <div class="container">
-        <p>Click below to fetch the latest business report from the internal system, add the "Reviewed & Processed" stamp, and view it.</p>
+        <p>Click below to fetch the latest business report from the internal system, apply the timestamped overlay, and view it.</p>
         
         <button id="generateBtn" onclick="loadPDF()">Fetch & Edit Report</button>
         <p id="errorMessage"></p>
 
-        <!-- The PDF will be displayed inside this iframe -->
         <iframe id="pdfFrame" class="pdf-viewer" title="PDF Viewer"></iframe>
     </div>
 
@@ -89,17 +88,14 @@
             const iframe = document.getElementById('pdfFrame');
             const errorMsg = document.getElementById('errorMessage');
 
-            // Reset UI state
             btn.innerText = "Processing PDF...";
             btn.disabled = true;
             errorMsg.style.display = "none";
             iframe.style.display = "none";
 
-            // Point the iframe source to your Vercel serverless function
-            // We append a timestamp to bypass browser caching so it always gets the freshest version
-            const apiUrl = '/api?timestamp=' + new Date().getTime();
+            // Calls the custom route defined in vercel.json
+            const apiUrl = '/api/edit-pdf?timestamp=' + new Date().getTime();
 
-            // Setup a load listener on the iframe to know when it finishes
             iframe.onload = function() {
                 btn.innerText = "Fetch & Edit Report";
                 btn.disabled = false;
@@ -113,7 +109,6 @@
                 errorMsg.style.display = "block";
             };
 
-            // Trigger the API call by setting the iframe src
             iframe.src = apiUrl;
         }
     </script>
